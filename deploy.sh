@@ -209,6 +209,20 @@ ENV
   read -rp "  Mailadresse des ersten Administrators: " admin_email
   read -rp "  Eigene Maildomains, kommagetrennt (z. B. beispiel.de): " internal_domains
 
+  echo
+  info "Firmenweiter Postfachzugriff:"
+  info "  nein = nur die Postfächer der Personen, die sich selbst anmelden"
+  info "  ja   = zusätzlich gemeinsame Postfächer und Postfächer ohne eigenen Zugang"
+  info "         (braucht Admin-Zustimmung und eine ApplicationAccessPolicy)"
+  read -rp "  Firmenweiten Zugriff aktivieren? [j/N]: " want_app_only
+  if [[ "$want_app_only" =~ ^[jJyY] ]]; then
+    app_only=true
+    read -rp "  Sicherheitsgruppe der Zugriffsrichtlinie (z. B. AkquiseSystem-Postfaecher): " mailbox_group
+  else
+    app_only=false
+    mailbox_group=""
+  fi
+
   for value in "$ms_tenant" "$ms_client" "$ms_secret" "$ai_key" "$admin_email"; do
     [ -n "$value" ] || fail "Alle Angaben sind erforderlich."
   done
@@ -244,10 +258,11 @@ MS_TENANT_ID=${ms_tenant}
 MS_CLIENT_ID=${ms_client}
 MS_CLIENT_SECRET=${ms_secret}
 MS_REDIRECT_URI=https://${domain}/api/auth/callback
-# Firmenweiter Postfachzugriff: erst nach ApplicationAccessPolicy einschalten,
+# Firmenweiter Postfachzugriff. Ohne ApplicationAccessPolicy im Exchange
+# hätte die Anwendung Zugriff auf jedes Postfach der Organisation –
 # siehe docs/AZURE_SETUP.md Abschnitt 4.
-MS_APP_ONLY_ENABLED=false
-MS_MAILBOX_GROUP=
+MS_APP_ONLY_ENABLED=${app_only}
+MS_MAILBOX_GROUP=${mailbox_group}
 
 ANTHROPIC_API_KEY=${ai_key}
 AI_MODEL_DRAFTING=claude-sonnet-5
@@ -427,6 +442,46 @@ case "${1:-}" in
     show_status
     ;;
 
+  policy)
+    # Erzeugt die Exchange-Befehle, die den Zugriff der Anwendung auf die
+    # freigegebenen Postfächer begrenzen. Ohne sie liest die Anwendung jedes
+    # Postfach der Organisation.
+    [ -f .env ] || fail "Keine .env gefunden. Erst ./deploy.sh setup ausführen."
+    client_id=$(grep -E '^MS_CLIENT_ID=' .env | cut -d= -f2-)
+    group=$(grep -E '^MS_MAILBOX_GROUP=' .env | cut -d= -f2-)
+    [ -n "$client_id" ] || fail "MS_CLIENT_ID ist nicht gesetzt."
+
+    step "Zugriffsrichtlinie einrichten"
+    info "Diese Befehle in der Exchange Online PowerShell ausführen"
+    info "(auf einem Windows-Rechner oder per: Install-Module ExchangeOnlineManagement)."
+    echo
+    cat <<POLICY
+Connect-ExchangeOnline
+
+# 1. Sicherheitsgruppe anlegen und NUR die Postfächer aufnehmen, die das
+#    Akquisesystem lesen darf. Alles, was nicht drin steht, bleibt unerreichbar.
+New-DistributionGroup -Name "${group:-AkquiseSystem-Postfaecher}" -Type Security
+
+Add-DistributionGroupMember -Identity "${group:-AkquiseSystem-Postfaecher}" -Member info@IHRE-DOMAIN
+Add-DistributionGroupMember -Identity "${group:-AkquiseSystem-Postfaecher}" -Member angebote@IHRE-DOMAIN
+# ... je Postfach eine Zeile
+
+# 2. Zugriff der Anwendung auf diese Gruppe begrenzen.
+New-ApplicationAccessPolicy \
+  -AppId ${client_id} \
+  -PolicyScopeGroupId "${group:-AkquiseSystem-Postfaecher}" \
+  -AccessRight RestrictAccess \
+  -Description "Akquisesystem darf nur die freigegebenen Postfaecher lesen"
+
+# 3. Prüfen: das erste muss "Granted" liefern, das zweite "Denied".
+Test-ApplicationAccessPolicy -Identity info@IHRE-DOMAIN -AppId ${client_id}
+Test-ApplicationAccessPolicy -Identity geschaeftsfuehrung@IHRE-DOMAIN -AppId ${client_id}
+POLICY
+    echo
+    warn "Die Richtlinie braucht bis zu einer Stunde, bis sie greift."
+    warn "Erst danach MS_APP_ONLY_ENABLED=true setzen – vorher sieht die Anwendung mehr, als sie soll."
+    ;;
+
   doctor)
     step "Diagnose"
 
@@ -483,6 +538,7 @@ ${BOLD}Akquisesystem – Einrichtung${RESET}
   ./deploy.sh update   Neuen Stand ausrollen
   ./deploy.sh status   Zustand anzeigen
   ./deploy.sh doctor   Diagnose bei Störungen: Container, Migrationen, Protokolle
+  ./deploy.sh policy   Exchange-Befehle für die Postfach-Zugriffsrichtlinie ausgeben
   ./deploy.sh logs     Protokoll verfolgen (optional: logs api | worker | db)
   ./deploy.sh backup   Datenbank sichern
   ./deploy.sh stop     Alles anhalten
