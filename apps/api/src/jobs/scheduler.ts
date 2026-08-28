@@ -20,7 +20,11 @@ const SCHEDULES = [
 
 export async function registerSchedules(): Promise<void> {
   const existing = await queue.getJobSchedulers();
-  const wanted = new Set(SCHEDULES.map((s) => s.key));
+  // Ohne Microsoft-Anbindung gibt es nichts zu synchronisieren und keine
+  // Transkripte abzuholen. Der tägliche Priorisierungslauf bleibt sinnvoll –
+  // er rechnet nur mit dem, was in der Datenbank steht.
+  const active = config.hasMicrosoft ? SCHEDULES : SCHEDULES.filter((s) => s.key === 'daily-scan');
+  const wanted = new Set(active.map((s) => s.key));
 
   for (const scheduler of existing) {
     if (scheduler.key && !wanted.has(scheduler.key as never)) {
@@ -29,7 +33,7 @@ export async function registerSchedules(): Promise<void> {
     }
   }
 
-  for (const schedule of SCHEDULES) {
+  for (const schedule of active) {
     await queue.upsertJobScheduler(
       schedule.key,
       { pattern: schedule.cron(), tz: 'UTC' },

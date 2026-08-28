@@ -6,7 +6,11 @@
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+# Die Adresse kommt aus SITE_ADDRESS:
+#   "akquise.beispiel.de"  – Caddy holt automatisch ein Let's-Encrypt-Zertifikat
+#   ":80"                  – reines HTTP ohne Zertifikat, für den Demo-Betrieb
+#                            auf einer IP-Adresse, für die es keines geben kann
+{$SITE_ADDRESS} {
 	encode zstd gzip
 
 	# Sicherheits-Header. Die Content-Security-Policy ist eng gefasst:

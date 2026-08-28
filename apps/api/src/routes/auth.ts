@@ -27,7 +27,35 @@ const VERIFIER_COOKIE = 'scrm_oauth_verifier';
  * Zugriff mehr auf das Akquisesystem.
  */
 export async function authRoutes(app: FastifyInstance): Promise<void> {
+  /**
+   * Anmeldung ohne Microsoft – ausschließlich zum Ausprobieren.
+   *
+   * Die Route wird nur registriert, wenn DEMO_MODE gesetzt ist, und die
+   * Konfiguration verweigert den Start, wenn das mit NODE_ENV=production
+   * zusammenfällt. Zwei Sperren, weil eine offene Anmeldung in einem
+   * erreichbaren System der schlimmste denkbare Fehler wäre.
+   */
+  if (config.DEMO_MODE) {
+    app.get('/api/auth/demo-login', async (request, reply) => {
+      const email = config.DEMO_USER_EMAIL.toLowerCase();
+      const user = await prisma.user.upsert({
+        where: { email },
+        create: { email, displayName: 'Demo-Benutzer', role: 'ADMIN' },
+        update: { active: true, role: 'ADMIN' },
+      });
+      logger.warn({ email }, 'Demo-Anmeldung ohne Microsoft – nur für Testzwecke');
+      setSessionCookie(reply, user.id);
+      return reply.redirect(`${config.PUBLIC_BASE_URL}/`);
+    });
+  }
+
   app.get('/api/auth/login', async (request, reply) => {
+    // Im Demo-Modus gibt es keinen Microsoft-Mandanten, an den weitergeleitet
+    // werden könnte – die Anmeldeseite bietet stattdessen den Demo-Login an.
+    if (!config.hasMicrosoft) {
+      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=no_microsoft`);
+    }
+
     const state = randomToken(16);
     const { verifier, challenge } = await generatePkce();
 
@@ -192,6 +220,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       displayName: user.displayName,
       role: user.role,
       timezone: user.timezone,
+      demoMode: config.DEMO_MODE,
+      hasMicrosoft: config.hasMicrosoft,
+      hasAi: config.hasAi,
       hasMailboxConnected: Boolean(account),
       mailboxAddress: account?.mailboxAddress ?? null,
       connectionError: account?.lastError ?? null,

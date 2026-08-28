@@ -29,6 +29,35 @@ holt das Zertifikat. Danach ist `https://IHRE-DOMAIN` erreichbar.
 Erste Anmeldung mit der Adresse aus `BOOTSTRAP_ADMIN_EMAIL` – dieses Konto wird
 automatisch Administrator.
 
+## Auf einem Server, auf dem schon Anwendungen laufen
+
+Der Regelfall in der Praxis. `deploy.sh` erkennt einen belegten Port 80/443 und
+verzichtet dann auf den eigenen Reverse Proxy: die Anwendung lauscht nur auf
+`127.0.0.1:<WEB_PORT>`, und der vorhandene Proxy bekommt einen zusätzlichen
+Eintrag. Das Skript gibt ihn nach dem Start aus.
+
+Was dabei zu beachten ist:
+
+- **Der Proxy muss `/api` mitleiten.** Ein einzelner `reverse_proxy`-Block auf
+  den Web-Port deckt beides ab, weil das Frontend-Image `/api` selbst nicht
+  bedient und der Block alles weiterreicht.
+- **Läuft der Proxy im Container,** ist `127.0.0.1` aus seiner Sicht der
+  Container selbst, nicht der Host. Dann `host.docker.internal` eintragen (unter
+  Linux zusätzlich `extra_hosts: ["host.docker.internal:host-gateway"]` am
+  Proxy-Container) oder die Docker-Bridge-IP, meist `172.17.0.1`.
+- **`PUBLIC_BASE_URL` muss der öffentlichen Adresse entsprechen**, nicht dem
+  lokalen Port. Sonst leitet die Anmeldung nach dem Microsoft-Login auf die
+  falsche Adresse und die Buchungslinks zeigen ins Leere.
+- **Der Datenbank-Container bekommt einen eigenen Namen** (`salescrm-db-1`) und
+  ein eigenes Volume. Vorhandene Postgres-Container bleiben unberührt.
+
+Ports lassen sich in der `.env` festlegen:
+
+```
+WEB_PORT=8090   # Dashboard, nur auf 127.0.0.1
+API_PORT=8091   # API, nur auf 127.0.0.1
+```
+
 ## Der historische Erstimport
 
 Der Import der Altbestände ist ein eigener Vorgang mit eigener Abnahme, kein

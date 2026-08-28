@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 const ERRORS: Record<string, string> = {
@@ -10,7 +11,42 @@ const ERRORS: Record<string, string> = {
     'Microsoft hat keinen dauerhaften Zugriff erteilt. In den Tenant-Einstellungen muss „offline_access" erlaubt sein.',
   missing_code: 'Die Anmeldung wurde abgebrochen.',
   no_account: 'Es konnte kein Konto ermittelt werden.',
+  no_microsoft:
+    'Microsoft 365 ist für dieses System noch nicht eingerichtet. Zum Ausprobieren steht die Demo-Anmeldung bereit.',
 };
+
+/**
+ * Bietet die Anmeldung ohne Microsoft an, aber nur wenn der Server sie
+ * tatsächlich bereitstellt. Die Prüfung läuft über einen Aufruf gegen die
+ * Route selbst: gibt es sie nicht, bleibt der Bereich leer.
+ */
+function DemoLogin() {
+  const { data } = useQuery({
+    queryKey: ['demo-available'],
+    queryFn: async () => {
+      const response = await fetch('/api/health/demo', { credentials: 'same-origin' });
+      if (!response.ok) return { demoMode: false };
+      return (await response.json()) as { demoMode: boolean };
+    },
+    retry: false,
+    staleTime: Infinity,
+  });
+
+  if (!data?.demoMode) return null;
+
+  return (
+    <div className="notice warning mt" style={{ textAlign: 'left' }}>
+      <strong>Demo-Modus aktiv.</strong> Dieses System ist noch nicht mit Microsoft 365 verbunden.
+      Sie können sich ohne Microsoft anmelden und die Anwendung mit Beispieldaten ansehen – es werden
+      keine Postfächer gelesen und keine E-Mails versendet.
+      <div className="mt">
+        <a href="/api/auth/demo-login">
+          <button>Ohne Microsoft ansehen</button>
+        </a>
+      </div>
+    </div>
+  );
+}
 
 export function LoginPage() {
   const [params] = useSearchParams();
@@ -42,6 +78,10 @@ export function LoginPage() {
           <p className="small muted mt">
             Beim ersten Mal fragt Microsoft nach Zustimmung zu Postfach-, Kalender- und Teams-Zugriff.
           </p>
+
+          {/* Nur sichtbar, wenn der Server im Demo-Modus läuft – sonst
+              antwortet die Route mit 404 und der Hinweis wäre irreführend. */}
+          <DemoLogin />
         </div>
       </div>
     </div>

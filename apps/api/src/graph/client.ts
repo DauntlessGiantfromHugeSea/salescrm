@@ -1,5 +1,6 @@
 import { getAccessToken } from '../auth/tokenStore.js';
 import { getAppAccessToken } from '../auth/appToken.js';
+import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
@@ -43,6 +44,14 @@ export function isAppOnly(actor: GraphActor): actor is { appOnly: true; mailbox:
 }
 
 async function tokenFor(actor: GraphActor): Promise<string> {
+  if (!config.hasMicrosoft) {
+    throw new GraphError(
+      503,
+      'microsoft_not_configured',
+      'Microsoft 365 ist nicht eingerichtet. Postfach, Kalender und Teams stehen ' +
+        'erst nach der Einrichtung zur Verfügung (docs/AZURE_SETUP.md).',
+    );
+  }
   return isAppOnly(actor) ? getAppAccessToken() : getAccessToken(actor.userId);
 }
 

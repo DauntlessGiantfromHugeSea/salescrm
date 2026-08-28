@@ -45,6 +45,16 @@ export async function buildServer() {
     return { status: 'ok', time: new Date().toISOString() };
   });
 
+  /**
+   * Sagt der Anmeldeseite, ob eine Anmeldung ohne Microsoft angeboten werden
+   * soll. Ohne Anmeldung erreichbar, verrät aber nichts über den Datenbestand.
+   */
+  app.get('/api/health/demo', async () => ({
+    demoMode: config.DEMO_MODE,
+    hasMicrosoft: config.hasMicrosoft,
+    hasAi: config.hasAi,
+  }));
+
   await app.register(authRoutes);
   await app.register(dashboardRoutes);
   await app.register(dealRoutes);
@@ -85,7 +95,22 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
-  logger.info({ port: config.PORT, baseUrl: config.PUBLIC_BASE_URL }, 'API bereit');
+
+  if (config.DEMO_MODE) {
+    logger.warn(
+      `DEMO-MODUS: Anmeldung ohne Microsoft unter ${config.PUBLIC_BASE_URL}/api/auth/demo-login. ` +
+        'Nicht für den Produktivbetrieb.',
+    );
+  }
+  logger.info(
+    {
+      port: config.PORT,
+      baseUrl: config.PUBLIC_BASE_URL,
+      microsoft: config.hasMicrosoft,
+      ki: config.hasAi,
+    },
+    'API bereit',
+  );
 }
 
 // Nur starten, wenn die Datei direkt ausgeführt wird – nicht beim Import in Tests.

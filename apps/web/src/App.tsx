@@ -21,6 +21,9 @@ export interface SessionUser {
   displayName: string;
   role: 'ADMIN' | 'USER';
   timezone: string;
+  demoMode: boolean;
+  hasMicrosoft: boolean;
+  hasAi: boolean;
   hasMailboxConnected: boolean;
   mailboxAddress: string | null;
   connectionError: string | null;
