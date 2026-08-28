@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { approveDraftSchema, generateDraftSchema, updateDraftSchema } from '@salescrm/shared';
+import { config } from '../config.js';
 import { prisma } from '../lib/db.js';
 import { logger } from '../lib/logger.js';
 import { currentUser, requireUser } from '../auth/session.js';
@@ -77,6 +78,18 @@ export async function draftRoutes(app: FastifyInstance): Promise<void> {
   /** Erzeugt einen neuen Entwurf. Optional mit echten Terminvorschlägen. */
   app.post('/api/drafts/generate', { preHandler: requireUser }, async (request, reply) => {
     const user = currentUser(request);
+
+    // Ohne KI-Schlüssel gibt es keine Entwürfe. Das ist ein Konfigurationszustand,
+    // kein Fehler – deshalb eine eigene, erklärende Antwort statt eines 502.
+    if (!config.hasAi) {
+      return reply.status(503).send({
+        error: 'ai_not_configured',
+        message:
+          'Für Entwürfe ist kein KI-Schlüssel hinterlegt. Alles andere funktioniert ohne. ' +
+          'Der Schlüssel lässt sich jederzeit nachtragen.',
+      });
+    }
+
     const parsed = generateDraftSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ error: 'invalid_body', issues: parsed.error.issues });
     const body = parsed.data;

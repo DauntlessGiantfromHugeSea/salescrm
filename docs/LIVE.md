@@ -62,6 +62,16 @@ Das Skript fragt der Reihe nach ab: Domain, Microsoft-Zugangsdaten,
 Anthropic-Schlüssel, Administrator-Mailadresse, eigene Maildomains und ob der
 firmenweite Zugriff aktiviert werden soll.
 
+**Der Anthropic-Schlüssel darf leer bleiben.** Ohne ihn laufen Mailimport,
+Projektakte, Kontakte, Teams-Termine und Excel-Export vollständig; es entfallen
+Mailentwürfe, Besprechungsnotizen und Firmenprofile. Das Dashboard weist an den
+betroffenen Stellen darauf hin, statt Fehler zu zeigen. Nachtragen jederzeit:
+
+```bash
+# ANTHROPIC_API_KEY in der .env setzen, dann
+docker compose up -d api worker
+```
+
 **Beim ersten Durchlauf hier „nein" antworten.** Der firmenweite Zugriff kommt
 in Schritt 6, nachdem die Begrenzung steht.
 

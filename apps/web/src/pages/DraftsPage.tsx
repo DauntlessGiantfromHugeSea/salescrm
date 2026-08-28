@@ -45,6 +45,12 @@ export function DraftsPage() {
     queryFn: () => api.get<{ drafts: Draft[] }>('/api/drafts'),
   });
 
+  const { data: user } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ hasAi: boolean }>('/api/auth/me'),
+    staleTime: 5 * 60_000,
+  });
+
   const drafts = data?.drafts ?? [];
   const pending = drafts.filter((d) => ['DRAFT', 'EDITED', 'APPROVED'].includes(d.status));
   const failed = drafts.filter((d) => d.status === 'FAILED');
@@ -70,6 +76,13 @@ export function DraftsPage() {
           </div>
         </div>
       </div>
+
+      {user && !user.hasAi && (
+        <div className="notice info">
+          Für Entwürfe ist kein KI-Schlüssel hinterlegt, es entstehen also keine neuen. Vorhandene
+          Entwürfe lassen sich weiterhin bearbeiten und freigeben.
+        </div>
+      )}
 
       {failed.length > 0 && (
         <div className="notice error">

@@ -84,6 +84,22 @@ function ConnectionCard({ user }: { user: SessionUser }) {
           </div>
         )}
 
+        <div className="field">
+          <label>KI-Funktionen</label>
+          {user.hasAi ? (
+            <span className="badge success">verfügbar</span>
+          ) : (
+            <>
+              <span className="badge">nicht eingerichtet</span>
+              <div className="small muted">
+                Ohne <span className="mono">ANTHROPIC_API_KEY</span> entfallen Mailentwürfe,
+                Besprechungsnotizen und Firmenprofile. Import, Projektakte, Termine und Export
+                laufen davon unabhängig.
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="actions">
           <a href="/api/auth/login?prompt=consent">
             <button>Verbindung erneuern</button>

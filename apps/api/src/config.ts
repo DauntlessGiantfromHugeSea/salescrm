@@ -66,7 +66,12 @@ const schema = z.object({
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
 
   /* --- KI --- */
-  /* Im Demo-Modus optional: ohne Schlüssel gibt es Beispielentwürfe statt echter. */
+  /**
+   * Optional. Ohne Schlüssel läuft alles weiter, was nichts mit Textproduktion
+   * zu tun hat: Mailimport, Projektakte, Kontakte, Teams-Termine, Export.
+   * Es entfallen Mailentwürfe, Mailzusammenfassungen, Besprechungsnotizen und
+   * Firmenprofile. Das Dashboard weist darauf hin, statt Fehler zu zeigen.
+   */
   ANTHROPIC_API_KEY: z.string().default(''),
   /** Statisches Routing (Kapitel 13): großes Modell für Texte, kleines für Klassifikation. */
   AI_MODEL_DRAFTING: z.string().default('claude-sonnet-5'),
@@ -133,7 +138,6 @@ if (!raw.DEMO_MODE) {
       ['MS_CLIENT_ID', raw.MS_CLIENT_ID],
       ['MS_CLIENT_SECRET', raw.MS_CLIENT_SECRET],
       ['MS_REDIRECT_URI', raw.MS_REDIRECT_URI],
-      ['ANTHROPIC_API_KEY', raw.ANTHROPIC_API_KEY],
     ] as const
   )
     .filter(([, value]) => !value)

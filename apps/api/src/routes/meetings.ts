@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { createMeetingSchema } from '@salescrm/shared';
+import { config } from '../config.js';
 import { prisma } from '../lib/db.js';
 import { logger } from '../lib/logger.js';
 import { currentUser, requireUser } from '../auth/session.js';
@@ -121,6 +122,13 @@ export async function meetingRoutes(app: FastifyInstance): Promise<void> {
     if (!meeting) return reply.status(404).send({ error: 'not_found' });
     if (meeting.endsAt.getTime() > Date.now()) {
       return reply.status(400).send({ error: 'not_finished', message: 'Der Termin läuft noch' });
+    }
+
+    if (!config.hasAi) {
+      return reply.status(503).send({
+        error: 'ai_not_configured',
+        message: 'Für Besprechungsnotizen ist kein KI-Schlüssel hinterlegt.',
+      });
     }
 
     const fetched = await fetchMeetingTranscript(id);

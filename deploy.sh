@@ -223,7 +223,11 @@ ENV
   read -rp "  Verzeichnis-ID (Mandant): " ms_tenant
   read -rp "  Anwendungs-ID (Client): " ms_client
   read -rsp "  Geheimer Clientschlüssel: " ms_secret; echo
-  read -rsp "  Anthropic API-Schlüssel: " ai_key; echo
+  info ""
+  info "Anthropic-Schlüssel (für KI-Entwürfe und Besprechungsnotizen)."
+  info "Leer lassen ist in Ordnung: alles andere läuft ohne, der Schlüssel"
+  info "lässt sich jederzeit in der .env nachtragen."
+  read -rsp "  Anthropic API-Schlüssel (optional, Enter zum Überspringen): " ai_key; echo
   read -rp "  Mailadresse des ersten Administrators: " admin_email
   read -rp "  Eigene Maildomains, kommagetrennt (z. B. beispiel.de): " internal_domains
 
@@ -241,9 +245,15 @@ ENV
     mailbox_group=""
   fi
 
-  for value in "$ms_tenant" "$ms_client" "$ms_secret" "$ai_key" "$admin_email"; do
-    [ -n "$value" ] || fail "Alle Angaben sind erforderlich."
+  for value in "$ms_tenant" "$ms_client" "$ms_secret" "$admin_email"; do
+    [ -n "$value" ] || fail "Domain, Microsoft-Zugangsdaten und Administrator sind erforderlich."
   done
+
+  if [ -z "$ai_key" ]; then
+    warn "Ohne KI-Schlüssel gibt es keine Mailentwürfe und keine Besprechungsnotizen."
+    info "Nachtragen später: ANTHROPIC_API_KEY in der .env setzen, dann"
+    info "  docker compose up -d api worker"
+  fi
 
   if [ -z "$internal_domains" ]; then
     warn "Ohne eigene Maildomains landen die Kolleginnen und Kollegen als vermeintliche Kunden im System."
@@ -302,6 +312,7 @@ CRON_NIGHTLY_SYNC=0 3 * * *
 CRON_DAILY_SCAN=30 4 * * 1-5
 CRON_TRANSCRIPT_FETCH=0 * * * *
 
+# Vorproduktion von Entwürfen im Tageslauf. Ohne KI-Schlüssel wirkungslos.
 AUTO_GENERATE_FOLLOWUP_DRAFTS=true
 MAX_AUTO_DRAFTS_PER_RUN=15
 ENV
