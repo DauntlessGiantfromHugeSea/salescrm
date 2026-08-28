@@ -19,7 +19,10 @@ import { contactRoutes } from './routes/contacts.js';
 
 export async function buildServer() {
   const app = Fastify({
-    logger,
+    // Fastify 5 nimmt unter "logger" nur noch ein Optionsobjekt entgegen.
+    // Eine fertig gebaute pino-Instanz gehört unter "loggerInstance" –
+    // andernfalls lehnt Fastify die Konfiguration beim Start ab.
+    loggerInstance: logger,
     trustProxy: true,
     bodyLimit: 1_048_576,
   });
@@ -44,6 +47,16 @@ export async function buildServer() {
     await prisma.$queryRaw`SELECT 1`;
     return { status: 'ok', time: new Date().toISOString() };
   });
+
+  /**
+   * Sagt der Anmeldeseite, ob eine Anmeldung ohne Microsoft angeboten werden
+   * soll. Ohne Anmeldung erreichbar, verrät aber nichts über den Datenbestand.
+   */
+  app.get('/api/health/demo', async () => ({
+    demoMode: config.DEMO_MODE,
+    hasMicrosoft: config.hasMicrosoft,
+    hasAi: config.hasAi,
+  }));
 
   await app.register(authRoutes);
   await app.register(dashboardRoutes);
@@ -85,7 +98,22 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
-  logger.info({ port: config.PORT, baseUrl: config.PUBLIC_BASE_URL }, 'API bereit');
+
+  if (config.DEMO_MODE) {
+    logger.warn(
+      `DEMO-MODUS: Anmeldung ohne Microsoft unter ${config.PUBLIC_BASE_URL}/api/auth/demo-login. ` +
+        'Nicht für den Produktivbetrieb.',
+    );
+  }
+  logger.info(
+    {
+      port: config.PORT,
+      baseUrl: config.PUBLIC_BASE_URL,
+      microsoft: config.hasMicrosoft,
+      ki: config.hasAi,
+    },
+    'API bereit',
+  );
 }
 
 // Nur starten, wenn die Datei direkt ausgeführt wird – nicht beim Import in Tests.

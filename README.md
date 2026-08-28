@@ -32,20 +32,36 @@ aus dem Transkript.
 
 | Ich will … | Dokument |
 |---|---|
+| es erst einmal ansehen | [docs/TESTEN.md](docs/TESTEN.md) |
 | Microsoft 365 einrichten | [docs/AZURE_SETUP.md](docs/AZURE_SETUP.md) |
 | installieren und betreiben | [docs/BETRIEB.md](docs/BETRIEB.md) |
 | verstehen, wie es funktioniert | [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) |
 | wissen, was als Nächstes kommt | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
-## Schnellstart
+## Erst ansehen, dann einrichten
+
+Zum Ausprobieren wird **kein Microsoft-Mandant gebraucht**:
 
 ```bash
-cp .env.example .env
-openssl rand -hex 32       # → ENCRYPTION_KEY
-openssl rand -base64 48    # → SESSION_SECRET
-nano .env                  # ausfüllen, Kommentare beachten
+git clone https://github.com/DauntlessGiantfromHugeSea/salescrm.git /opt/salescrm
+cd /opt/salescrm
+./deploy.sh demo
+```
 
-docker compose up -d
+Das Skript prüft die Voraussetzungen, erzeugt die Schlüssel, baut, startet und
+legt zwei Beispiel-Bauprojekte mit Beteiligten, Schriftverkehr und offenen
+Vorgängen an. Läuft auf dem Server bereits ein Reverse Proxy, wird keiner
+gestartet und stattdessen der passende Konfigurationsblock ausgegeben.
+
+Im Dashboard dann auf **„Ohne Microsoft ansehen"** klicken. Details und eine
+Prüfliste: [docs/TESTEN.md](docs/TESTEN.md).
+
+## Produktivbetrieb
+
+Voraussetzung ist die App-Registrierung nach [docs/AZURE_SETUP.md](docs/AZURE_SETUP.md).
+
+```bash
+./deploy.sh setup
 ```
 
 Dann `https://IHRE-DOMAIN` öffnen und mit dem Microsoft-Konto anmelden.

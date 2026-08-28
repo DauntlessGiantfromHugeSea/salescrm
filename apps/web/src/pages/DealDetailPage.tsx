@@ -93,7 +93,10 @@ export function DealDetailPage({ user }: { user: SessionUser }) {
   }
   if (!deal) return <div className="notice error">Der Vorgang konnte nicht geladen werden.</div>;
 
-  const transcriptAvailable = user.unavailableFeatures.every((f) => !f.scope.includes('Transcript'));
+  // Besprechungsnotizen brauchen beides: die Graph-Berechtigung für das
+  // Transkript und ein Modell, das daraus eine Notiz macht.
+  const transcriptAvailable =
+    user.hasAi && user.unavailableFeatures.every((f) => !f.scope.includes('Transcript'));
 
   return (
     <>
@@ -241,15 +244,23 @@ export function DealDetailPage({ user }: { user: SessionUser }) {
               <h2 style={{ margin: 0 }}>Entwurf erzeugen</h2>
             </div>
             <div className="card-body">
-              <div className="small muted mb">
-                Die KI schreibt einen Vorschlag. Versendet wird erst nach Ihrer Freigabe unter „Entwürfe".
-              </div>
+              {user.hasAi ? (
+                <div className="small muted mb">
+                  Die KI schreibt einen Vorschlag. Versendet wird erst nach Ihrer Freigabe unter „Entwürfe".
+                </div>
+              ) : (
+                <div className="notice info">
+                  Für Entwürfe ist kein KI-Schlüssel hinterlegt. Alles andere funktioniert ohne –
+                  Mails an diesen Kontakt schreiben Sie so lange direkt in Outlook.
+                </div>
+              )}
               <div className="actions">
                 {DRAFT_TYPES.map((type) => (
                   <button
                     key={type}
                     onClick={() => generate.mutate(type)}
-                    disabled={generate.isPending || !deal.contactEmail}
+                    disabled={generate.isPending || !deal.contactEmail || !user.hasAi}
+                    title={!user.hasAi ? 'Kein KI-Schlüssel hinterlegt' : undefined}
                   >
                     {DRAFT_TYPE_LABELS[type]}
                   </button>

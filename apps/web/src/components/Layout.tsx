@@ -47,6 +47,14 @@ export function Layout({ user, children }: { user: SessionUser; children: ReactN
       </header>
 
       <main>
+        {/* Im Demo-Modus soll auf jedem Bildschirm sichtbar sein, dass hier
+            keine echten Daten stehen und nichts nach außen geht. */}
+        {user.demoMode && (
+          <div className="notice warning">
+            <strong>Demo-Modus.</strong> Keine Verbindung zu Microsoft 365: es werden keine Postfächer gelesen,
+            keine Termine angelegt und keine E-Mails versendet. Die angezeigten Daten sind Beispieldaten.
+          </div>
+        )}
         {/* Ein abgelaufenes Token ist der häufigste Grund, warum morgens
             nichts Neues da ist – deshalb steht der Hinweis ganz oben. */}
         {user.connectionError && (
@@ -55,7 +63,7 @@ export function Layout({ user, children }: { user: SessionUser; children: ReactN
             <a href="/api/auth/login">Erneut anmelden</a>
           </div>
         )}
-        {!user.hasMailboxConnected && (
+        {!user.hasMailboxConnected && !user.demoMode && (
           <div className="notice warning">
             Es ist kein Postfach verbunden. Ohne Verbindung werden keine Mails gelesen und keine Termine angelegt.{' '}
             <a href="/api/auth/login">Jetzt verbinden</a>

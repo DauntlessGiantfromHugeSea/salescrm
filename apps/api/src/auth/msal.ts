@@ -25,5 +25,35 @@ const msalConfig: Configuration = {
  * MSAL hält intern einen Token-Cache. Wir verlassen uns bewusst nicht darauf,
  * sondern speichern den Refresh-Token selbst verschlüsselt in der Datenbank –
  * so überlebt eine Anmeldung auch Neustarts und mehrere Prozesse (API + Worker).
+ *
+ * Im Demo-Modus gibt es keine Zugangsdaten; der Client wird dann gar nicht
+ * erst gebaut, weil MSAL sonst schon beim Import wirft.
  */
-export const msalClient = new ConfidentialClientApplication(msalConfig);
+export class MicrosoftNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'Microsoft 365 ist nicht eingerichtet. Diese Funktion braucht einen Mandanten – ' +
+        'siehe docs/AZURE_SETUP.md.',
+    );
+    this.name = 'MicrosoftNotConfiguredError';
+  }
+}
+
+const client = config.hasMicrosoft ? new ConfidentialClientApplication(msalConfig) : null;
+
+export function requireMsalClient(): ConfidentialClientApplication {
+  if (!client) throw new MicrosoftNotConfiguredError();
+  return client;
+}
+
+/**
+ * Zugriff über einen Stellvertreter: jeder Aufruf prüft vorher, ob Microsoft
+ * überhaupt eingerichtet ist. So bleibt der bestehende Aufrufcode unverändert
+ * und scheitert im Demo-Modus mit einer verständlichen Meldung.
+ */
+export const msalClient = new Proxy({} as ConfidentialClientApplication, {
+  get(_target, property) {
+    const value = Reflect.get(requireMsalClient(), property) as unknown;
+    return typeof value === 'function' ? value.bind(requireMsalClient()) : value;
+  },
+});

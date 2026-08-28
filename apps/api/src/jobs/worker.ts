@@ -114,7 +114,9 @@ async function handleUserSync(data: JobPayloads['user.sync']): Promise<unknown> 
 async function handleDailyScan(data: JobPayloads['daily.scan']): Promise<unknown> {
   const result = await runDailyScan(data.userId);
 
-  if (config.AUTO_GENERATE_FOLLOWUP_DRAFTS) {
+  // Ohne KI-Schlüssel läuft der Tageslauf vollständig durch – nur die
+  // Entwurfsvorproduktion entfällt. Das ist im Demo-Modus der Normalfall.
+  if (config.AUTO_GENERATE_FOLLOWUP_DRAFTS && config.hasAi) {
     await generateFollowUpDrafts(data.userId);
   }
 

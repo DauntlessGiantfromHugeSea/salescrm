@@ -2,7 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 
-const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+/** Ohne Schlüssel gibt es keinen Client – im Demo-Modus ist das der Normalfall. */
+const anthropic = config.hasAi ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY }) : null;
 
 /**
  * Statisches Modell-Routing (Kapitel 13): welche Aufgabe auf welchem Modell
@@ -37,8 +38,23 @@ export class AiError extends Error {
   }
 }
 
+export class AiNotConfiguredError extends AiError {
+  constructor() {
+    super(
+      'Es ist kein KI-Schlüssel hinterlegt. Entwürfe und Zusammenfassungen brauchen ' +
+        'ANTHROPIC_API_KEY; alles andere funktioniert ohne.',
+    );
+    this.name = 'AiNotConfiguredError';
+  }
+}
+
+export function isAiAvailable(): boolean {
+  return anthropic !== null;
+}
+
 export async function complete(options: CompletionOptions): Promise<CompletionResult> {
   const model = modelFor(options.task);
+  if (!anthropic) throw new AiNotConfiguredError();
   try {
     const response = await anthropic.messages.create({
       model,
