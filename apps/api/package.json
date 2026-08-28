@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "worker": "tsx src/worker.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run check:deps",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -17,7 +17,8 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "import": "tsx src/scripts/import.ts",
     "demo:seed": "tsx src/scripts/demoData.ts",
-    "demo:reset": "prisma migrate reset --force --schema prisma/schema.prisma && tsx src/scripts/demoData.ts"
+    "demo:reset": "prisma migrate reset --force --schema prisma/schema.prisma && tsx src/scripts/demoData.ts",
+    "check:deps": "tsx src/scripts/checkRuntimeDeps.ts"
   },
   "prisma": {
     "seed": "tsx src/scripts/seed.ts"
