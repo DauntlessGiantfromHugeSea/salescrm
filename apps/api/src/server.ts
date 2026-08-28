@@ -19,7 +19,10 @@ import { contactRoutes } from './routes/contacts.js';
 
 export async function buildServer() {
   const app = Fastify({
-    logger,
+    // Fastify 5 nimmt unter "logger" nur noch ein Optionsobjekt entgegen.
+    // Eine fertig gebaute pino-Instanz gehört unter "loggerInstance" –
+    // andernfalls lehnt Fastify die Konfiguration beim Start ab.
+    loggerInstance: logger,
     trustProxy: true,
     bodyLimit: 1_048_576,
   });
