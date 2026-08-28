@@ -11,13 +11,21 @@ eingeschaltet, nachdem die Begrenzung nachweislich greift.
 
 ## 1. Subdomain und Zertifikat
 
-Das System braucht eine eigene Subdomain, z. B. `akquise.rss-fb.com`.
+Das System braucht eine eigene Subdomain, z. B. `crm.rss-fb.com`.
 
 - A-Record auf den Server zeigen lassen
-- Prüfen: `getent hosts akquise.rss-fb.com` muss die Server-IP liefern
+- Prüfen: `getent hosts crm.rss-fb.com` muss die Server-IP liefern
 
 Läuft auf dem Server bereits ein Reverse Proxy, bekommt der später einen
 zusätzlichen Eintrag; `deploy.sh` gibt ihn nach dem Start aus.
+
+### Wenn der vorhandene Proxy selbst im Container läuft
+
+Aus einem Container heraus zeigt `127.0.0.1` auf den Container selbst, nicht
+auf den Server – ein Eintrag auf `127.0.0.1:8090` läuft dort ins Leere.
+`deploy.sh` erkennt das Docker-Netz des vorhandenen Proxys und hängt den
+Web-Container zusätzlich hinein; der Proxy erreicht ihn dann über den Namen
+`salescrm-web`. Das Netz steht anschließend als `PROXY_NETWORK` in der `.env`.
 
 ---
 
@@ -26,7 +34,7 @@ zusätzlichen Eintrag; `deploy.sh` gibt ihn nach dem Start aus.
 Vollständig in [AZURE_SETUP.md](AZURE_SETUP.md), hier nur die Reihenfolge:
 
 1. App-Registrierung `Akquisesystem` anlegen
-2. Umleitungs-URI: `https://akquise.rss-fb.com/api/auth/callback`
+2. Umleitungs-URI: `https://crm.rss-fb.com/api/auth/callback`
 3. Clientschlüssel erzeugen, **Wert sofort kopieren** – er ist nur einmal sichtbar
 4. Delegierte Berechtigungen setzen und Administratorzustimmung erteilen
 
@@ -73,7 +81,7 @@ docker compose up -d        # legt sie leer neu an, Migrationen laufen automatis
 
 ## 4. Erste Anmeldung und ein Postfach prüfen
 
-`https://akquise.rss-fb.com` öffnen, mit dem Administrator-Konto anmelden.
+`https://crm.rss-fb.com` öffnen, mit dem Administrator-Konto anmelden.
 Microsoft fragt einmalig nach Zustimmung.
 
 Danach unter **Einstellungen**:
@@ -170,7 +178,7 @@ nächste.
 
 ## 7. Kollegen aufnehmen
 
-Jeder meldet sich einmal unter `https://akquise.rss-fb.com` mit seinem
+Jeder meldet sich einmal unter `https://crm.rss-fb.com` mit seinem
 Microsoft-Konto an. Das Konto entsteht dabei automatisch, sein persönliches
 Postfach läuft ab dann delegiert – datensparsamer als über die
 Anwendungsidentität.
@@ -198,7 +206,7 @@ das aus. Wo es reicht, ist es die einfachere Wahl.
 
 ## Abnahme
 
-- [ ] `https://akquise.rss-fb.com` über HTTPS erreichbar, Zertifikat gültig
+- [ ] `https://crm.rss-fb.com` über HTTPS erreichbar, Zertifikat gültig
 - [ ] Anmeldung mit dem Firmenkonto
 - [ ] Systemstatus ohne Fehler
 - [ ] Nächtlicher Lauf am Folgetag durchgelaufen

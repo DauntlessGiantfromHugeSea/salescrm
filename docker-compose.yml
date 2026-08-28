@@ -121,6 +121,15 @@ services:
     # andere Anwendungen die Ports 80 und 443 belegen.
     ports:
       - '127.0.0.1:${WEB_PORT:-8090}:80'
+    networks:
+      default:
+      # Zusätzlich im Netz des vorhandenen Reverse Proxys, damit der den
+      # Container direkt über seinen Namen erreicht. Aus einem Proxy-Container
+      # heraus ist 127.0.0.1 der Container selbst, nicht der Server – deshalb
+      # ist der Weg über ein gemeinsames Netz zuverlässiger als eine IP.
+      proxy:
+        aliases:
+          - ${PROXY_ALIAS:-salescrm-web}
 
   # Eigener Reverse Proxy – nur für Server, auf denen noch keiner läuft.
   # Start mit: docker compose --profile standalone up -d
@@ -144,6 +153,15 @@ services:
     depends_on:
       - api
       - web
+
+networks:
+  default:
+  # Netz des bereits vorhandenen Reverse Proxys.
+  # PROXY_NETWORK in der .env auf dessen Namen setzen. Ist nichts gesetzt,
+  # zeigt der Eintrag auf das eigene Netz und bleibt wirkungslos.
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-salescrm_default}
 
 volumes:
   db-data:

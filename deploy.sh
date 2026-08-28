@@ -73,7 +73,11 @@ detect_existing_proxy() {
   local container
   container=$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null \
     | grep -E ':(80|443)->' | awk '{print $1}' | head -1 || true)
-  [ -n "$container" ] && occupant="der Container ${BOLD}${container}${RESET}"
+  if [ -n "$container" ]; then
+    occupant="der Container ${BOLD}${container}${RESET}"
+    PROXY_CONTAINER="$container"
+    PROXY_NETWORK=$(detect_proxy_network "$container" || true)
+  fi
 
   if [ -n "$occupant" ]; then
     EXISTING_PROXY="$occupant"
@@ -81,6 +85,18 @@ detect_existing_proxy() {
   fi
   EXISTING_PROXY=''
   return 1
+}
+
+# Ermittelt das Docker-Netz des vorhandenen Reverse Proxys.
+# Liegt der eigene Web-Container mit darin, erreicht der Proxy ihn über seinen
+# Namen – zuverlässiger als über eine IP, denn aus einem Proxy-Container heraus
+# ist 127.0.0.1 der Container selbst und nicht der Server.
+detect_proxy_network() {
+  local container="$1"
+  [ -n "$container" ] || return 1
+  docker inspect "$container" \
+    --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null \
+    | grep -v '^$' | grep -v '^bridge$' | head -1
 }
 
 # Sucht einen freien Port ab dem angegebenen Startwert.
@@ -152,6 +168,8 @@ ACME_EMAIL=demo@example.de
 PUBLIC_BASE_URL=${base_url}
 WEB_PORT=${WEB_PORT}
 API_PORT=${API_PORT}
+PROXY_NETWORK=${PROXY_NETWORK:-}
+PROXY_ALIAS=salescrm-web
 LOG_LEVEL=info
 
 POSTGRES_USER=salescrm
@@ -243,6 +261,10 @@ ACME_EMAIL=${acme_email}
 PUBLIC_BASE_URL=https://${domain}
 WEB_PORT=${WEB_PORT}
 API_PORT=${API_PORT}
+# Netz des vorhandenen Reverse Proxys, damit dieser den Web-Container über
+# seinen Namen erreicht. Leer = eigener Reverse Proxy.
+PROXY_NETWORK=${PROXY_NETWORK:-}
+PROXY_ALIAS=salescrm-web
 LOG_LEVEL=info
 
 POSTGRES_USER=salescrm
@@ -329,17 +351,36 @@ start_stack() {
 print_proxy_snippet() {
   grep -qE '^SITE_ADDRESS=.+' .env && return 0
 
-  local domain web_port
+  local domain web_port network alias upstream
   domain=$(grep -E '^DOMAIN=' .env | cut -d= -f2-)
   web_port=$(grep -E '^WEB_PORT=' .env | cut -d= -f2-)
+  network=$(grep -E '^PROXY_NETWORK=' .env | cut -d= -f2-)
+  alias=$(grep -E '^PROXY_ALIAS=' .env | cut -d= -f2-)
+  alias="${alias:-salescrm-web}"
 
   step "Eintrag für den vorhandenen Reverse Proxy"
-  info "Auf diesem Server läuft bereits ein Proxy auf Port 80/443. Dieser Stack"
-  info "lauscht auf 127.0.0.1:${web_port}. Damit das Dashboard unter der Domain"
-  info "erreichbar wird, gehört dieser Block in dessen Konfiguration:"
+
+  if [ -n "$network" ]; then
+    # Beide Container hängen im selben Netz: der Proxy erreicht den
+    # Web-Container über seinen Namen. Das ist der zuverlässige Weg –
+    # aus einem Container heraus zeigt 127.0.0.1 auf ihn selbst.
+    upstream="${alias}:80"
+    ok "Gemeinsames Docker-Netz erkannt: ${network}"
+    info "Der Proxy erreicht die Anwendung unter ${BOLD}${upstream}${RESET}."
+  else
+    upstream="host.docker.internal:${web_port}"
+    warn "Kein gemeinsames Docker-Netz gefunden."
+    info "Läuft der Proxy im Container, braucht er Zugriff auf den Host:"
+    info "  extra_hosts: [\"host.docker.internal:host-gateway\"]"
+    info "Alternativ PROXY_NETWORK in der .env auf das Netz des Proxys setzen"
+    info "und 'docker compose up -d web' erneut ausführen."
+  fi
+
+  echo
+  info "Diesen Block in die Konfiguration des vorhandenen Proxys aufnehmen:"
   echo
   cat <<SNIPPET
-${BOLD}Caddy${RESET} (Caddyfile, danach: docker exec <caddy-container> caddy reload --config /etc/caddy/Caddyfile)
+${BOLD}Caddy${RESET}
 
 ${domain} {
 	encode zstd gzip
@@ -348,8 +389,9 @@ ${domain} {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
 	}
-	reverse_proxy 127.0.0.1:${web_port}
+	reverse_proxy ${upstream}
 }
 
 ${BOLD}nginx${RESET}
@@ -358,20 +400,25 @@ server {
 	listen 443 ssl http2;
 	server_name ${domain};
 	# ssl_certificate ...;
+	client_max_body_size 10m;
 	location / {
-		proxy_pass http://127.0.0.1:${web_port};
+		proxy_pass http://${upstream};
 		proxy_set_header Host \$host;
 		proxy_set_header X-Real-IP \$remote_addr;
 		proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto \$scheme;
+		proxy_read_timeout 300s;
 	}
 }
 SNIPPET
   echo
-  warn "Der Proxy muss auch /api weiterleiten – der Block oben deckt beides ab."
-  warn "Läuft der Proxy selbst im Container, ist 127.0.0.1 aus dessen Sicht"
-  warn "nicht der Host. Dann stattdessen host.docker.internal oder die Docker-Bridge-IP"
-  warn "(meist 172.17.0.1) eintragen."
+  info "Der Block deckt auch /api ab – eine zweite Regel ist nicht nötig."
+
+  if [ -n "${PROXY_CONTAINER:-}" ]; then
+    echo
+    info "Danach den Proxy neu laden:"
+    info "  docker exec ${PROXY_CONTAINER} caddy reload --config /etc/caddy/Caddyfile"
+  fi
 }
 
 wait_for_health() {
