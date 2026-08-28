@@ -427,6 +427,41 @@ case "${1:-}" in
     show_status
     ;;
 
+  doctor)
+    step "Diagnose"
+
+    info "Stand: $(git log --oneline -1 2>/dev/null || echo unbekannt)"
+    info "Betriebsart: $(grep -E '^DEMO_MODE=' .env 2>/dev/null || echo 'keine .env gefunden')"
+    info "Adresse: $(grep -E '^PUBLIC_BASE_URL=' .env 2>/dev/null | cut -d= -f2-)"
+    info "Web-Port: $(grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2-)"
+
+    step "Container"
+    compose ps -a
+
+    step "Migrationen"
+    # Der häufigste Grund für eine nicht startende API: die Migration lief nicht
+    # durch, und api wartet auf deren Erfolg.
+    compose logs --tail=25 migrate 2>&1 || info "kein migrate-Container"
+
+    step "API"
+    compose logs --tail=40 api 2>&1 || info "kein api-Container"
+
+    step "Erreichbarkeit"
+    # Kein "local" – das ist außerhalb einer Funktion nicht zulässig.
+    web_port=$(grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2- || echo 8090)
+    printf '  Dashboard  '
+    curl -sS -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:${web_port}/" 2>&1 || echo 'nicht erreichbar'
+    printf '  API        '
+    curl -sS -w ' (%{http_code})\n' "http://127.0.0.1:${web_port}/api/health/demo" 2>&1 || echo 'nicht erreichbar'
+
+    step "Datenbank"
+    compose exec -T db psql -U salescrm -d salescrm -c \
+      'select count(*) as projekte from "Project";' 2>&1 \
+      || info 'Datenbank nicht erreichbar oder Tabellen fehlen (Migration nicht gelaufen)'
+
+    printf '\n%sDiese Ausgabe vollständig kopieren – daraus lässt sich die Ursache ablesen.%s\n\n' "$BOLD" "$RESET"
+    ;;
+
   status)  show_status ;;
   logs)    compose logs --tail=100 -f "${2:-}" ;;
   stop)    compose down; ok "Gestoppt" ;;
@@ -447,6 +482,7 @@ ${BOLD}Akquisesystem – Einrichtung${RESET}
   ./deploy.sh setup    Produktivbetrieb einrichten
   ./deploy.sh update   Neuen Stand ausrollen
   ./deploy.sh status   Zustand anzeigen
+  ./deploy.sh doctor   Diagnose bei Störungen: Container, Migrationen, Protokolle
   ./deploy.sh logs     Protokoll verfolgen (optional: logs api | worker | db)
   ./deploy.sh backup   Datenbank sichern
   ./deploy.sh stop     Alles anhalten

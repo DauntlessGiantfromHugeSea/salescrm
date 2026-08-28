@@ -32,6 +32,8 @@ COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 # Nur Produktionsabhängigkeiten; das Frontend ist zu diesem Zeitpunkt statisch.
+# Die Prisma-CLI gehört bewusst dazu: der migrate-Container führt damit
+# "prisma migrate deploy" aus, bevor API und Worker starten.
 RUN npm ci --omit=dev --workspace @salescrm/api --workspace @salescrm/shared --include-workspace-root
 
 COPY --from=build /app/packages/shared/dist packages/shared/dist
