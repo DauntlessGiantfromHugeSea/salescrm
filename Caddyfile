@@ -1,0 +1,42 @@
+# Reverse Proxy mit automatischem TLS.
+# Caddy beantragt und erneuert das Zertifikat selbst – es gibt keinen
+# Cron-Job und keinen manuellen Schritt dafür.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Sicherheits-Header. Die Content-Security-Policy ist eng gefasst:
+	# das Dashboard lädt nichts von fremden Servern.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# API und Anmeldung gehen an den Node-Prozess.
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	# Alles andere ist das Dashboard bzw. die öffentliche Buchungsseite.
+	handle {
+		reverse_proxy web:80
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20mb
+			roll_keep 10
+		}
+		# Keine vollständigen Anfragen protokollieren: darin stünden
+		# Kundennamen und Mailadressen.
+		format json
+	}
+}

@@ -1,0 +1,771 @@
+// Datenmodell des AI Sales Acquisition System.
+// Postgres ist das führende System (Entscheidung aus dem Handover-Gespräch);
+// Outlook, Teams und Planner sind Quellen, nicht die Wahrheit.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum DealStage {
+  NEW
+  OPEN
+  AWAITING_REPLY
+  FOLLOW_UP_DUE
+  IN_CLARIFICATION
+  MEETING_SCHEDULED
+  PROPOSAL_IN_PROGRESS
+  PROPOSAL_SENT
+  WON
+  LOST
+  ON_HOLD
+  NEEDS_REVIEW
+}
+
+enum TrustLevel {
+  HIGH
+  MEDIUM
+  LOW
+  UNVERIFIED
+}
+
+enum RelevanceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum DecisionMakerLevel {
+  DECISION_MAKER
+  INFLUENCER
+  UNKNOWN
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum ActivityChannel {
+  EMAIL
+  PHONE
+  MEETING
+  NOTE
+  TASK
+}
+
+enum DraftType {
+  FOLLOW_UP
+  REACTIVATION
+  COLD_OUTREACH
+}
+
+enum DraftStatus {
+  DRAFT
+  EDITED
+  APPROVED
+  SENDING
+  SENT
+  FAILED
+  DISCARDED
+}
+
+enum ReviewType {
+  DUPLICATE_CONTACT
+  DUPLICATE_COMPANY
+  UNCLEAR_ASSIGNMENT
+  UNASSIGNED_PROJECT_MAIL
+  AMBIGUOUS_PROJECT_MAIL
+  PLANNER_TASK_ORPHANED
+  PLANNER_TASK_MISSING
+  PLANNER_TASK_OVERDUE
+  MEETING_WITHOUT_DEAL
+  STALE_DEAL
+}
+
+enum ReviewStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  HELD
+  CANCELLED
+  NO_SHOW
+}
+
+enum Source {
+  OUTLOOK
+  MANUAL
+  BOOKING
+  IMPORT
+  LINKEDIN
+}
+
+enum ProjectStage {
+  LEAD
+  ACQUISITION
+  QUOTED
+  AWARDED
+  PLANNING
+  EXECUTION
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+/// Rolle einer externen Person im Bauprojekt.
+enum ProjectContactRole {
+  CLIENT
+  ARCHITECT
+  STRUCTURAL_ENGINEER
+  SITE_MANAGER
+  PROJECT_MANAGER
+  GENERAL_CONTRACTOR
+  SUBCONTRACTOR
+  SURVEYOR
+  AUTHORITY
+  SUPPLIER
+  OTHER
+}
+
+/// Rolle eines Kollegen im Projektteam.
+enum ProjectMemberRole {
+  LEAD
+  ENGINEER
+  SALES
+  SUPPORT
+  OBSERVER
+}
+
+/// Wie eine Mail einem Projekt zugeordnet wurde – macht Zuordnungen prüfbar.
+/// Art eines Firmenpostfachs.
+enum MailboxKind {
+  USER
+  SHARED
+}
+
+/// Wie auf ein Postfach zugegriffen wird.
+enum MailboxAuthMode {
+  /// Im Namen des angemeldeten Benutzers (persönliches Postfach).
+  DELEGATED
+  /// Mit der Anwendungsidentität und Admin-Zustimmung (firmenweiter Zugriff).
+  APP_ONLY
+}
+
+enum LinkMethod {
+  PROJECT_NUMBER
+  CONVERSATION
+  PARTICIPANTS
+  DEAL
+  MANUAL
+  AI_SUGGESTION
+}
+
+/// Ein Benutzer des Dashboards. Phase 1: nur der Primärnutzer.
+/// Phase 2 fügt lediglich einen weiteren Datensatz hinzu – kein DB-Umbau.
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  displayName   String
+  role          UserRole @default(USER)
+  active        Boolean  @default(true)
+  /// Objekt-ID aus Entra ID (Azure AD). Stabil, auch wenn sich die Mailadresse ändert.
+  msObjectId    String?  @unique
+  timezone      String   @default("Europe/Berlin")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  msAccount     MsAccount?
+  ownedDeals    Deal[]        @relation("DealOwner")
+  ownedCompanies Company[]    @relation("CompanyOwner")
+  ownedContacts Contact[]     @relation("ContactOwner")
+  activities    Activity[]
+  drafts        EmailDraft[]
+  meetings      Meeting[]
+  bookingLinks  BookingLink[]
+  plannerTasks  PlannerTask[]
+  syncStates    SyncState[]
+  auditLogs     AuditLog[]
+  reviewItems   ReviewItem[]
+  ledProjects   Project[]     @relation("ProjectLead")
+  projectRoles  ProjectMember[]
+  mailboxes     Mailbox[]     @relation("MailboxOwner")
+
+  @@index([active])
+}
+
+/// Verschlüsselt abgelegte Microsoft-Graph-Tokens je Benutzer (delegated flow).
+/// Der Refresh-Token liegt nie im Klartext in der Datenbank.
+model MsAccount {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId             String
+  homeAccountId        String
+  /// AES-256-GCM-Chiffrat des Refresh-Tokens.
+  refreshTokenCipher   String
+  scopes               String[]
+  /// Zeitpunkt, an dem der zuletzt geholte Access-Token abläuft.
+  accessTokenExpiresAt DateTime?
+  mailboxAddress       String?
+  connectedAt          DateTime @default(now())
+  lastRefreshAt        DateTime?
+  lastError            String?
+  updatedAt            DateTime @updatedAt
+}
+
+/// Firma. Aus Mail-Domains und Signaturen abgeleitet oder manuell angelegt.
+model Company {
+  id            String     @id @default(cuid())
+  name          String
+  /// Normalisierter Name für Dublettenerkennung (kleingeschrieben, ohne Rechtsform).
+  nameNormalized String
+  website       String?
+  /// Primäre Maildomain – stärkstes Signal für die Firmenzuordnung.
+  emailDomain   String?
+  industry      String?
+  size          String?
+  /// KI-generiertes Kurzprofil der Leistungen (Custom Field aus Kapitel 6.1).
+  profile       String?
+  source        Source     @default(OUTLOOK)
+  trustLevel    TrustLevel @default(UNVERIFIED)
+  ownerId       String?
+  owner         User?      @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  mergedIntoId  String?
+  mergedInto    Company?   @relation("CompanyMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom    Company[]  @relation("CompanyMerge")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  contacts      Contact[]
+  deals         Deal[]
+  projects      Project[]
+  projectRoles  ProjectContact[]
+
+  @@index([nameNormalized])
+  @@index([emailDomain])
+  @@index([ownerId])
+}
+
+/// Kontaktperson. Die Mailadresse ist der eindeutige Schlüssel des Imports.
+model Contact {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  firstName          String?
+  lastName           String?
+  displayName        String?
+  phone              String?
+  position           String?
+  decisionMakerLevel DecisionMakerLevel @default(UNKNOWN)
+  companyId          String?
+  company            Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  source             Source             @default(OUTLOOK)
+  trustLevel         TrustLevel         @default(UNVERIFIED)
+  ownerId            String?
+  owner              User?              @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Anzahl gesehener Mails – Grundlage für die Import-Regel "≥ 3 Mails".
+  emailCount         Int                @default(0)
+  lastInboundAt      DateTime?
+  lastOutboundAt     DateTime?
+  optedOut           Boolean            @default(false)
+  mergedIntoId       String?
+  mergedInto         Contact?           @relation("ContactMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom         Contact[]          @relation("ContactMerge")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  deals              Deal[]
+  activities         Activity[]
+  projectRoles       ProjectContact[]
+
+  @@index([companyId])
+  @@index([ownerId])
+  @@index([lastOutboundAt])
+}
+
+/// Verkaufschance. `ownerId` ist Pflichtfeld ab Tag 1 (Anforderung 4.3).
+model Deal {
+  id             String          @id @default(cuid())
+  title          String
+  description    String?
+  stage          DealStage       @default(NEW)
+  serviceArea    String?
+  relevance      RelevanceLevel?
+  source         Source          @default(OUTLOOK)
+  nextAction     String?
+  dueDate        DateTime?
+  followUpDate   DateTime?
+  lastInboundAt  DateTime?
+  lastOutboundAt DateTime?
+  lastContactAt  DateTime?
+
+  ownerId        String
+  owner          User            @relation("DealOwner", fields: [ownerId], references: [id])
+  projectId      String?
+  project        Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  companyId      String?
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contactId      String?
+  contact        Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// Ergebnis des letzten Regel-Laufs – gecacht, damit die Tagesübersicht schnell lädt.
+  isOpen         Boolean         @default(true)
+  openReasons    String[]        @default([])
+  lastEvaluatedAt DateTime?
+
+  closedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  activities     Activity[]
+  drafts         EmailDraft[]
+  meetings       Meeting[]
+  plannerTasks   PlannerTask[]
+  reviewItems    ReviewItem[]
+  bookings       Booking[]
+
+  @@index([ownerId, stage])
+  @@index([isOpen, ownerId])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([projectId])
+}
+
+/// Kommunikationshistorie (Kapitel 6.4). Eine Zeile je Mail, Anruf, Termin oder Notiz.
+model Activity {
+  id                String            @id @default(cuid())
+  occurredAt        DateTime
+  direction         ActivityDirection
+  channel           ActivityChannel
+  subject           String?
+  /// Gekürzter Klartext der Mail. Vollständige Bodies werden nicht gespeichert.
+  bodyPreview       String?
+  /// KI-generierte Zusammenfassung (Custom Field aus Kapitel 6.4).
+  summary           String?
+  replyPending      Boolean           @default(false)
+
+  /// Anhänge werden nur als Metadaten geführt – Inhalte sind in Phase 1 bewusst ausgeschlossen.
+  attachmentNames   String[]          @default([])
+  hasPdfAttachment  Boolean           @default(false)
+
+  /// Graph-Message-ID bzw. internetMessageId – macht den Import idempotent.
+  graphMessageId    String?           @unique
+  internetMessageId String?
+  conversationId    String?
+
+  userId            String?
+  user              User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  dealId            String?
+  deal              Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contactId         String?
+  contact           Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  meetingId         String?
+  meeting           Meeting?          @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  projectId         String?
+  project           Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Aus welchem Firmenpostfach diese Nachricht stammt.
+  mailboxId         String?
+  mailbox           Mailbox?          @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+  /// Wie die Projektzuordnung zustande kam. Automatisch zugeordnete Mails
+  /// lassen sich dadurch im Dashboard von manuell bestätigten unterscheiden.
+  projectLinkMethod LinkMethod?
+  projectLinkScore  Int?
+
+  createdAt         DateTime          @default(now())
+
+  @@index([dealId, occurredAt])
+  @@index([contactId, occurredAt])
+  @@index([conversationId])
+  @@index([occurredAt])
+  @@index([projectId, occurredAt])
+  @@index([mailboxId, occurredAt])
+}
+
+/// KI-Entwurf einer Mail. Verlässt DRAFT/EDITED nur durch explizite Freigabe.
+model EmailDraft {
+  id             String      @id @default(cuid())
+  dealId         String
+  deal           Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  type           DraftType
+  status         DraftStatus @default(DRAFT)
+  subject        String
+  body           String
+  toEmail        String
+  toName         String?
+  ccEmails       String[]    @default([])
+
+  /// Welches Modell den Entwurf erzeugt hat – für Nachvollziehbarkeit und Kostenkontrolle.
+  model          String?
+  /// Kurze Begründung der KI, warum dieser Entwurf so formuliert ist.
+  rationale      String?
+  /// Terminvorschläge, die im Text referenziert werden.
+  proposedSlots  Json?
+
+  approvedAt     DateTime?
+  approvedByIp   String?
+  sentAt         DateTime?
+  sentMessageId  String?
+  error          String?
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([dealId, status])
+  @@index([userId, status])
+}
+
+/// Teams-Termin. Entsteht aus dem Deal heraus oder über die öffentliche Buchungsseite.
+model Meeting {
+  id                  String        @id @default(cuid())
+  dealId              String?
+  deal                Deal?         @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  projectId           String?
+  project             Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  organizerId         String
+  organizer           User          @relation(fields: [organizerId], references: [id])
+
+  subject             String
+  startsAt            DateTime
+  endsAt              DateTime
+  status              MeetingStatus @default(SCHEDULED)
+  attendeeEmails      String[]      @default([])
+  agenda              String?
+
+  /// Graph-Kennungen: Kalendereintrag und zugehöriges Teams-Meeting.
+  graphEventId        String?       @unique
+  graphOnlineMeetingId String?
+  joinUrl             String?
+  /// Zusammengesetzte ID für die Transkript-Abfrage (organizer + meeting).
+  transcriptFetchedAt DateTime?
+  transcriptText      String?
+  summary             String?
+  nextActionSuggestion String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  activities          Activity[]
+  booking             Booking?
+
+  @@index([dealId])
+  @@index([organizerId, startsAt])
+  @@index([status, startsAt])
+}
+
+/// Öffentlich erreichbarer Buchungslink (termin.<domain>/b/<slug>).
+model BookingLink {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  ownerId         String
+  owner           User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  durationMinutes Int       @default(30)
+  /// Frühester buchbarer Zeitpunkt in Stunden ab jetzt.
+  minNoticeHours  Int       @default(12)
+  /// Wie weit im Voraus gebucht werden kann.
+  maxDaysAhead    Int       @default(21)
+  /// Arbeitszeitfenster als "HH:mm" in der Zeitzone des Owners.
+  workdayStart    String    @default("09:00")
+  workdayEnd      String    @default("17:00")
+  /// Wochentage 1 = Montag … 7 = Sonntag.
+  weekdays        Int[]     @default([1, 2, 3, 4, 5])
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  bookings        Booking[]
+
+  @@index([ownerId, active])
+}
+
+/// Eine über die öffentliche Seite gebuchte Terminanfrage.
+model Booking {
+  id            String      @id @default(cuid())
+  linkId        String
+  link          BookingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  meetingId     String?     @unique
+  meeting       Meeting?    @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  dealId        String?
+  deal          Deal?       @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  name          String
+  email         String
+  companyName   String?
+  note          String?
+  startsAt      DateTime
+  endsAt        DateTime
+  /// IP-Adresse des Buchenden – nur für Missbrauchserkennung, 30 Tage Aufbewahrung.
+  requesterIp   String?
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now())
+
+  @@index([linkId, startsAt])
+  @@index([email])
+}
+
+/// Gespiegelte Planner-Aufgabe. Planner ist Steuerungsquelle, nie führend.
+model PlannerTask {
+  id            String    @id @default(cuid())
+  graphTaskId   String    @unique
+  planId        String
+  bucketId      String?
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dealId        String?
+  deal          Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  title         String
+  dueAt         DateTime?
+  completedAt   DateTime?
+  percentComplete Int     @default(0)
+  syncedAt      DateTime  @default(now())
+
+  @@index([userId, completedAt])
+  @@index([dealId])
+  @@index([dueAt])
+}
+
+/// Bucket D: alles, was ein Mensch anschauen muss. Nichts wird automatisch gelöscht.
+model ReviewItem {
+  id               String       @id @default(cuid())
+  type             ReviewType
+  status           ReviewStatus @default(OPEN)
+  title            String
+  detail           String
+  /// Stabiler Schlüssel, damit derselbe Konflikt nicht täglich neu erzeugt wird.
+  dedupeKey        String       @unique
+  userId           String?
+  user             User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  dealId           String?
+  deal             Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  projectId        String?
+  project          Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  contactId        String?
+  companyId        String?
+  relatedContactId String?
+  relatedCompanyId String?
+  resolutionNote   String?
+  resolvedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status, userId])
+  @@index([type, status])
+}
+
+/// Delta-Token und Fortschritt je Synchronisationsquelle.
+/// Hängt entweder an einem Benutzer (Kontakte, Kalender, Planner)
+/// oder an einem Postfach (Mailordner) – genau eines von beiden ist gesetzt.
+model SyncState {
+  id            String    @id @default(cuid())
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailboxId     String?
+  mailbox       Mailbox?  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  /// z. B. "mail:inbox", "mail:sentitems", "contacts", "calendar", "planner"
+  resource      String
+  deltaLink     String?
+  /// Bis wohin der historische Erstimport fortgeschritten ist (rückwärts in der Zeit).
+  backfillCursor DateTime?
+  backfillDone  Boolean   @default(false)
+  lastRunAt     DateTime?
+  lastError     String?
+  itemsSynced   Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, resource])
+  @@unique([mailboxId, resource])
+}
+
+/// Ein Postfach der Firma, das synchronisiert wird.
+///
+/// Persönliche Postfächer laufen delegiert über die Anmeldung ihres Inhabers,
+/// gemeinsame Postfächer (info@, angebote@, projekte@) über die
+/// Anwendungsidentität. Welche Postfächer die App überhaupt sehen darf,
+/// begrenzt im Tenant eine ApplicationAccessPolicy – siehe docs/AZURE_SETUP.md.
+model Mailbox {
+  id             String          @id @default(cuid())
+  address        String          @unique
+  displayName    String
+  kind           MailboxKind     @default(USER)
+  authMode       MailboxAuthMode @default(APP_ONLY)
+
+  /// Entra-Objekt-ID des Postfachs. Stabiler Adressat für Graph-Aufrufe.
+  graphUserId    String?
+
+  /// Kollege, dem Deals aus diesem Postfach zugeordnet werden.
+  /// Bei gemeinsamen Postfächern ist das der fachlich Zuständige.
+  ownerUserId    String?
+  ownerUser      User?           @relation("MailboxOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  /// Ordner, die synchronisiert werden. Leer = Vorgabe aus der Konfiguration.
+  folders        String[]        @default([])
+  syncEnabled    Boolean         @default(true)
+  /// Erstimport abgeschlossen? Danach laufen nur noch Delta-Abfragen.
+  initialImportDone Boolean      @default(false)
+
+  lastSyncAt     DateTime?
+  lastError      String?
+  messagesSynced Int             @default(0)
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  syncStates     SyncState[]
+  activities     Activity[]
+
+  @@index([syncEnabled, authMode])
+  @@index([ownerUserId])
+}
+
+/// Revisionssicheres Protokoll aller Aktionen mit Außenwirkung.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// z. B. "draft.approved", "email.sent", "meeting.created", "review.merged"
+  action     String
+  entityType String
+  entityId   String?
+  detail     Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([userId, action])
+}
+
+/// Ergebnis eines täglichen Priorisierungslaufs – macht Läufe nachvollziehbar.
+model DailyRun {
+  id             String   @id @default(cuid())
+  runDate        DateTime
+  userId         String
+  dealsEvaluated Int      @default(0)
+  followUpCount  Int      @default(0)
+  reactivationCount Int   @default(0)
+  coldOutreachCount Int   @default(0)
+  conflictCount  Int      @default(0)
+  draftsCreated  Int      @default(0)
+  error          String?
+  startedAt      DateTime @default(now())
+  finishedAt     DateTime?
+
+  @@unique([runDate, userId])
+}
+
+
+/// Bauprojekt. Klammert Beteiligte, Kommunikation, Termine und Deals zusammen.
+/// Anders als ein Deal überlebt ein Projekt den Zuschlag und läuft über die
+/// gesamte Ausführung weiter – deshalb ein eigenes Objekt.
+model Project {
+  id             String       @id @default(cuid())
+  /// Interne Projektnummer, z. B. "2026-041". Wichtigstes Zuordnungssignal für Mails.
+  number         String       @unique
+  name           String
+  description    String?
+  stage          ProjectStage @default(LEAD)
+
+  /// Bauort – hilft bei der Unterscheidung gleichnamiger Vorhaben.
+  siteAddress    String?
+  city           String?
+  postalCode     String?
+  country        String?      @default("DE")
+
+  /// Auftraggeber als Firma.
+  companyId      String?
+  company        Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  /// Projektleiter aus dem eigenen Haus. Fachliche Verantwortung.
+  leadUserId     String
+  leadUser       User         @relation("ProjectLead", fields: [leadUserId], references: [id])
+
+  serviceArea    String?
+  budgetCents    BigInt?
+  currency       String       @default("EUR")
+  startsOn       DateTime?
+  endsOn         DateTime?
+
+  /// Zusätzliche Betreffkennungen, unter denen dieses Projekt in Mails auftaucht
+  /// (z. B. Bauvorhabenname des Kunden oder abweichende Kundenprojektnummer).
+  aliases        String[]     @default([])
+
+  /// Automatisch fortgeschriebene Kennzahlen für die Projektliste.
+  lastActivityAt DateTime?
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  members        ProjectMember[]
+  contacts       ProjectContact[]
+  deals          Deal[]
+  activities     Activity[]
+  meetings       Meeting[]
+  reviewItems    ReviewItem[]
+
+  @@index([stage, leadUserId])
+  @@index([companyId])
+  @@index([lastActivityAt])
+}
+
+/// Interner Kollege im Projektteam. Trägt die gemeinsame Bearbeitung:
+/// jedes Teammitglied sieht das Projekt und seine Kommunikation, auch wenn
+/// es nicht Owner der einzelnen Deals ist.
+model ProjectMember {
+  id        String            @id @default(cuid())
+  projectId String
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectMemberRole @default(ENGINEER)
+  /// Darf Stammdaten und Beteiligte des Projekts ändern.
+  canEdit   Boolean           @default(true)
+  addedAt   DateTime          @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+/// Externer Beteiligter mit seiner Rolle im Projekt.
+/// Dieselbe Person kann in mehreren Projekten unterschiedliche Rollen haben –
+/// deshalb hängt die Rolle an dieser Verbindung, nicht am Kontakt.
+model ProjectContact {
+  id            String             @id @default(cuid())
+  projectId     String
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// Firma, für die diese Person in diesem Projekt auftritt. Kann von der
+  /// Stammfirma des Kontakts abweichen (Subunternehmer, ARGE, Wechsel).
+  companyId     String?
+  company       Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  role          ProjectContactRole @default(OTHER)
+  /// Freitext für Rollen, die das Enum nicht abbildet.
+  roleDetail    String?
+  isPrimary     Boolean            @default(false)
+  note          String?
+  /// Aus Mailverkehr abgeleitet statt manuell gepflegt – im Dashboard markiert.
+  autoDetected  Boolean            @default(false)
+  lastContactAt DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@unique([projectId, contactId])
+  @@index([contactId])
+  @@index([projectId, role])
+}
