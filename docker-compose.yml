@@ -113,6 +113,9 @@ services:
       context: .
       dockerfile: Dockerfile.web
     restart: unless-stopped
+    # nginx reicht /api an die API weiter, wenn kein eigener Caddy davor liegt.
+    depends_on:
+      - api
     # Nur auf der Loopback-Adresse: der Reverse Proxy des Servers holt sich das
     # von hier. Damit läuft der Stack auch auf einem Server, auf dem bereits
     # andere Anwendungen die Ports 80 und 443 belegen.

@@ -25,6 +25,14 @@ const VERIFIER_COOKIE = 'scrm_oauth_verifier';
  * Anmeldung über Microsoft. Es gibt bewusst kein eigenes Passwort:
  * wer keinen Zugriff mehr auf das Firmenkonto hat, hat auch keinen
  * Zugriff mehr auf das Akquisesystem.
+ *
+ * Alle Weiterleitungen innerhalb der Anwendung sind bewusst relativ. Absolute
+ * Ziele auf PUBLIC_BASE_URL würden den Browser auf einen anderen Host schicken,
+ * sobald der Zugriff nicht über genau diese Adresse läuft – etwa über einen
+ * SSH-Tunnel auf localhost. Das Session-Cookie gilt dann für den anderen Host
+ * und geht verloren: man landet nach erfolgreicher Anmeldung wieder auf der
+ * Anmeldeseite. PUBLIC_BASE_URL bleibt für das, was tatsächlich absolut sein
+ * muss: die Umleitungs-URI zu Microsoft und die Buchungslinks.
  */
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -45,7 +53,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
       logger.warn({ email }, 'Demo-Anmeldung ohne Microsoft – nur für Testzwecke');
       setSessionCookie(reply, user.id);
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/`);
+      return reply.redirect('/');
     });
   }
 
@@ -53,7 +61,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     // Im Demo-Modus gibt es keinen Microsoft-Mandanten, an den weitergeleitet
     // werden könnte – die Anmeldeseite bietet stattdessen den Demo-Login an.
     if (!config.hasMicrosoft) {
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=no_microsoft`);
+      return reply.redirect(`/login?error=no_microsoft`);
     }
 
     const state = randomToken(16);
@@ -86,10 +94,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     if (query.error) {
       logger.warn({ error: query.error, description: query.error_description }, 'Anmeldung abgebrochen');
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=${encodeURIComponent(query.error)}`);
+      return reply.redirect(`/login?error=${encodeURIComponent(query.error)}`);
     }
     if (!query.code || !query.state) {
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=missing_code`);
+      return reply.redirect(`/login?error=missing_code`);
     }
 
     const expectedState = unsignCookie(request.cookies[STATE_COOKIE]);
@@ -99,7 +107,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     if (!expectedState || expectedState !== query.state || !verifier) {
       logger.warn('State- oder Verifier-Prüfung fehlgeschlagen – möglicher CSRF-Versuch');
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=state_mismatch`);
+      return reply.redirect(`/login?error=state_mismatch`);
     }
 
     let result;
@@ -112,19 +120,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (err) {
       logger.error({ err }, 'Token-Austausch fehlgeschlagen');
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=token_exchange`);
+      return reply.redirect(`/login?error=token_exchange`);
     }
 
     const account = result.account;
     const email = (account?.username ?? '').toLowerCase();
     if (!email) {
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=no_account`);
+      return reply.redirect(`/login?error=no_account`);
     }
 
     // Zugangskontrolle: nur freigegebene Adressen dürfen ins Dashboard.
     if (config.allowedLoginEmails.length > 0 && !config.allowedLoginEmails.includes(email)) {
       logger.warn({ email }, 'Anmeldung durch nicht freigegebene Adresse abgewiesen');
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=not_allowed`);
+      return reply.redirect(`/login?error=not_allowed`);
     }
 
     const grantedScopes = result.scopes ?? [];
@@ -134,7 +142,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (missing.length > 0) {
       logger.warn({ email, missing }, 'Pflichtberechtigungen fehlen');
       return reply.redirect(
-        `${config.PUBLIC_BASE_URL}/login?error=missing_scopes&detail=${encodeURIComponent(missing.join(','))}`,
+        `/login?error=missing_scopes&detail=${encodeURIComponent(missing.join(','))}`,
       );
     }
 
@@ -162,7 +170,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const refreshToken = await extractRefreshToken(account?.homeAccountId);
     if (!refreshToken) {
       logger.error({ email }, 'Kein Refresh-Token erhalten – offline_access im Tenant blockiert?');
-      return reply.redirect(`${config.PUBLIC_BASE_URL}/login?error=no_refresh_token`);
+      return reply.redirect(`/login?error=no_refresh_token`);
     }
 
     await persistTokens({
@@ -197,7 +205,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     await audit({ userId: user.id, action: 'auth.login', entityType: 'User', entityId: user.id, ip: request.ip });
 
     setSessionCookie(reply, user.id);
-    return reply.redirect(`${config.PUBLIC_BASE_URL}/`);
+    return reply.redirect('/');
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
