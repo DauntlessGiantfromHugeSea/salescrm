@@ -1,0 +1,22 @@
+{
+  "name": "salescrm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build -w @salescrm/shared && npm run build -w @salescrm/api && npm run build -w @salescrm/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev -w @salescrm/api & npm run dev -w @salescrm/web",
+    "db:migrate": "npm run db:migrate -w @salescrm/api",
+    "db:seed": "npm run db:seed -w @salescrm/api"
+  }
+}
